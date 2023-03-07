@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -390,6 +391,22 @@ func orbHelpLong(config *settings.Config) string {
 See a full explanation and documentation on orbs here: %s`, config.Data.Links.OrbDocs)
 }
 
+// Transform a boolean parameter into a string. Because the value can be a boolean but can also be
+// a string, we need to first parse it as a boolean and then if it is not a boolean, parse it as
+// a string
+//
+// Documentation reference: https://circleci.com/docs/reusing-config/#boolean
+func booleanParameterDefaultToString(parameter api.OrbElementParameter) string {
+	if v, ok := parameter.Default.(bool); ok {
+		return fmt.Sprintf("%t", v)
+	}
+	v, ok := parameter.Default.(string)
+	if !ok {
+		log.Panicf("Unable to parse boolean parameter with value %+v", v)
+	}
+	return v
+}
+
 func parameterDefaultToString(parameter api.OrbElementParameter) string {
 	defaultValue := " (default: '"
 
@@ -401,12 +418,18 @@ func parameterDefaultToString(parameter api.OrbElementParameter) string {
 	}
 
 	switch parameter.Type {
-	case "enum":
-		defaultValue += parameter.Default.(string)
-	case "string":
-		defaultValue += parameter.Default.(string)
+	case "enum", "string":
+		if v, ok := parameter.Default.(string); ok {
+			defaultValue += v
+			break
+		}
+		if v, ok := parameter.Default.(fmt.Stringer); ok {
+			defaultValue += v.String()
+			break
+		}
+		log.Panicf("Unable to parse parameter default with value %+v because it's neither a string nor a stringer", parameter.Default)
 	case "boolean":
-		defaultValue += fmt.Sprintf("%t", parameter.Default.(bool))
+		defaultValue += booleanParameterDefaultToString(parameter)
 	default:
 		defaultValue += ""
 	}
@@ -848,6 +871,16 @@ If you change your mind about the name, you will have to create a new orb with t
 `, namespace, orbName)
 	}
 
+	if opts.private {
+		fmt.Printf(`This orb will not be listed on the registry and is usable only by org users.
+
+`)
+	} else {
+		fmt.Printf(`Please note that any versions you publish of this orb will be world readable unless you create it with the '--private' flag
+
+`)
+	}
+
 	confirm := fmt.Sprintf("Are you sure you wish to create the orb: `%s/%s`", namespace, orbName)
 
 	if opts.noPrompt || opts.tty.askUserToConfirm(confirm) {
@@ -857,13 +890,7 @@ If you change your mind about the name, you will have to create a new orb with t
 			return err
 		}
 
-		confirmationString := "Please note that any versions you publish of this orb are world-readable."
-		if opts.private {
-			confirmationString = "This orb will not be listed on the registry and is usable only by org users."
-		}
-
 		fmt.Printf("Orb `%s` created.\n", opts.args[0])
-		fmt.Println(confirmationString)
 		fmt.Printf("You can now register versions of `%s` using `circleci orb publish`.\n", opts.args[0])
 	}
 
