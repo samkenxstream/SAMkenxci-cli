@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"os"
 
+	"github.com/CircleCI-Public/circleci-cli/api/collaborators"
+	"github.com/CircleCI-Public/circleci-cli/api/graphql"
 	"github.com/CircleCI-Public/circleci-cli/api/rest"
 	"github.com/CircleCI-Public/circleci-cli/settings"
 	"github.com/pkg/errors"
@@ -20,18 +22,30 @@ var (
 )
 
 type ConfigCompiler struct {
-	host                   string
-	compileRestClient      *rest.Client
-	collaboratorRestClient *rest.Client
+	host              string
+	compileRestClient *rest.Client
+	collaborators     collaborators.CollaboratorsClient
+
+	cfg                 *settings.Config
+	legacyGraphQLClient *graphql.Client
 }
 
 func New(cfg *settings.Config) *ConfigCompiler {
 	hostValue := getCompileHost(cfg.Host)
-	configCompiler := &ConfigCompiler{
-		host:                   hostValue,
-		compileRestClient:      rest.NewFromConfig(hostValue, cfg),
-		collaboratorRestClient: rest.NewFromConfig(cfg.Host, cfg),
+	collaboratorsClient, err := collaborators.NewCollaboratorsRestClient(*cfg)
+
+	if err != nil {
+		panic(err)
 	}
+
+	configCompiler := &ConfigCompiler{
+		host:              hostValue,
+		compileRestClient: rest.NewFromConfig(hostValue, cfg),
+		collaborators:     collaboratorsClient,
+		cfg:               cfg,
+	}
+
+	configCompiler.legacyGraphQLClient = graphql.NewClient(cfg.HTTPClient, cfg.Host, cfg.Endpoint, cfg.Token, cfg.Debug)
 	return configCompiler
 }
 
@@ -64,7 +78,7 @@ type CompileConfigRequest struct {
 type Options struct {
 	OwnerID            string                 `json:"owner_id,omitempty"`
 	PipelineParameters map[string]interface{} `json:"pipeline_parameters,omitempty"`
-	PipelineValues     map[string]string      `json:"pipeline_values,omitempty"`
+	PipelineValues     map[string]interface{} `json:"pipeline_values,omitempty"`
 }
 
 // ConfigQuery - attempts to compile or validate a given config file with the
@@ -102,12 +116,17 @@ func (c *ConfigCompiler) ConfigQuery(
 	}
 
 	configCompilationResp := &ConfigResponse{}
-	statusCode, err := c.compileRestClient.DoRequest(req, configCompilationResp)
-	if err != nil {
-		if statusCode == 404 {
-			return nil, errors.New("this version of the CLI does not support your instance of server, please refer to https://github.com/CircleCI-Public/circleci-cli for version compatibility")
+	statusCode, originalErr := c.compileRestClient.DoRequest(req, configCompilationResp)
+	if statusCode == 404 {
+		fmt.Fprintf(os.Stderr, "You are using a old version of CircleCI Server, please consider updating\n")
+		legacyResponse, err := c.legacyConfigQueryByOrgID(configString, orgID, params, values, c.cfg)
+		if err != nil {
+			return nil, err
 		}
-		return nil, fmt.Errorf("config compilation request returned an error: %w", err)
+		return legacyResponse, nil
+	}
+	if originalErr != nil {
+		return nil, fmt.Errorf("config compilation request returned an error: %w", originalErr)
 	}
 
 	if statusCode != 200 {

@@ -59,8 +59,10 @@ curl -fLSs https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/i
 You can also set a specific version of the CLI to install with the `VERSION` environment variable:
 
 ```
-curl -fLSs https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/install.sh | VERSION=0.1.5222 sudo bash
+curl -fLSs https://raw.githubusercontent.com/CircleCI-Public/circleci-cli/main/install.sh | sudo VERSION=0.1.5222 bash
 ```
+
+Take note that additional environment variables should be passed between sudo and invoking bash.
 
 #### Checksum verification
 
@@ -110,10 +112,9 @@ CircleCI host has been set.
 Setup complete. Your configuration has been saved.
 ```
 
+If you are using this tool on `circleci.com`, accept the provided default `CircleCI Host`.
 
-If you are using this tool on `circleci.com`. accept the provided default `CircleCI Host`.
-
-Server users will have to change the default value to your custom address (i.e. `circleci.my-org.com`).
+Server users will have to change the default value to your custom address (e.g., `circleci.my-org.com`).
 
 **Note**: Server does not yet support config processing and orbs, you will only be able to use `circleci local execute` (previously `circleci build`) for now.
 
@@ -134,7 +135,7 @@ Config file at .circleci/config.yml is valid
 The CLI may also be used without installation by using Docker.
 
 ```
-docker run --rm -v $(pwd):/data circleci/circleci-cli:alpine config validate /data/.circleci/config.yml --token $TOKEN
+docker run --rm -v $(pwd):/data -w /data circleci/circleci-cli:alpine config validate /data/.circleci/config.yml --token $TOKEN
 ```
 
 ## circleci-agent
@@ -151,7 +152,7 @@ The following commands are affected:
 
 ## Platforms, Deployment and Package Managers
 
-The tool is deployed through a number of channels. The primary release channel is through [GitHub Releases](https://github.com/CircleCI-Public/circleci-cli/releases). Green builds on the `main` branch will publish a new GitHub release. These releases contain binaries for macOS, Linux and Windows. These releases are published from (CircleCI)[https://app.circleci.com/pipelines/github/CircleCI-Public/circleci-cli] using (GoReleaser)[https://goreleaser.com/].
+The tool is deployed through a number of channels. The primary release channel is through [GitHub Releases](https://github.com/CircleCI-Public/circleci-cli/releases). Green builds on the `main` branch will publish a new GitHub release. These releases contain binaries for macOS, Linux and Windows. These releases are published from (CircleCI)[https://app.circleci.com/pipelines/github/CircleCI-Public/circleci-cli] using [GoReleaser](https://goreleaser.com/).
 
 ### Homebrew
 
@@ -177,9 +178,8 @@ Development instructions for the CircleCI CLI can be found in [HACKING.md](HACKI
 
 Please see the [documentation](https://circleci-public.github.io/circleci-cli) or `circleci help` for more.
 
+## Server compatibility
 
-## Version Compatibility 
-
-As of version `0.1.24705` - we no longer support Server 3.x instances. In order to upgrade the CLI to the latest version, you'll need to update your instance of server to 4.x.
-
-`0.1.23845` is the last version to support Server 3.x and 2.x.
+There are some difference of behavior depending on the version you use:
+ - config validation will use the GraphQL API until **Server v4.0.5, v4.1.3, v4.2.0**. The above versions will use the new route `compile-config-with-defaults`
+ - `circleci orb validate` will only allow you to validate orbs using other private orbs with the option `--org-slug` from version **Server v4.2.0**

@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -10,9 +11,19 @@ import (
 )
 
 func printValues(values Values) {
-	for key, value := range values {
-		fmt.Printf("\t%s:\t%s", key, value)
+	// Provide a stable sort order for printed values
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
 	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		fmt.Fprintf(os.Stderr, "%-18s %v\n", key+":", values[key])
+	}
+
+	// Add empty newline at end
+	fmt.Fprintf(os.Stderr, "\n")
 }
 
 type ProcessConfigOpts struct {
@@ -28,28 +39,29 @@ func (c *ConfigCompiler) getOrgID(
 	optsOrgID string,
 	optsOrgSlug string,
 ) (string, error) {
-	if optsOrgID == "" && optsOrgSlug == "" {
-		fmt.Println("No org id or slug has been provided")
+	if strings.TrimSpace(optsOrgID) != "" {
+		return optsOrgID, nil
+	}
+
+	if strings.TrimSpace(optsOrgSlug) == "" {
 		return "", nil
 	}
 
-	var orgID string
-	if strings.TrimSpace(optsOrgID) != "" {
-		orgID = optsOrgID
-	} else {
-		orgs, err := c.GetOrgCollaborations()
-		if err != nil {
-			return "", err
-		}
-		orgID = GetOrgIdFromSlug(optsOrgSlug, orgs)
-		if orgID == "" {
-			fmt.Println("Could not fetch a valid org-id from collaborators endpoint.")
-			fmt.Println("Check if you have access to this org by hitting https://circleci.com/api/v2/me/collaborations")
-			fmt.Println("Continuing on - private orb resolution will not work as intended")
-		}
+	coll, err := c.collaborators.GetCollaborationBySlug(optsOrgSlug)
+
+	if err != nil {
+		return "", err
 	}
 
-	return orgID, nil
+	if coll == nil {
+		fmt.Println("Could not fetch a valid org-id from collaborators endpoint.")
+		fmt.Println("Check if you have access to this org by hitting https://circleci.com/api/v2/me/collaborations")
+		fmt.Println("Continuing on - private orb resolution will not work as intended")
+
+		return "", nil
+	}
+
+	return coll.OrgId, nil
 }
 
 func (c *ConfigCompiler) ProcessConfig(opts ProcessConfigOpts) error {
@@ -74,7 +86,7 @@ func (c *ConfigCompiler) ProcessConfig(opts ProcessConfigOpts) error {
 	//if no orgId provided use org slug
 	values := LocalPipelineValues()
 	if opts.VerboseOutput {
-		fmt.Println("Processing config with following values")
+		fmt.Fprintln(os.Stderr, "Processing config with following values:")
 		printValues(values)
 	}
 
@@ -119,7 +131,7 @@ func (c *ConfigCompiler) ValidateConfig(opts ValidateConfigOpts) error {
 	//if no orgId provided use org slug
 	values := LocalPipelineValues()
 	if opts.VerboseOutput {
-		fmt.Println("Validating config with following values")
+		fmt.Fprintln(os.Stderr, "Validating config with following values:")
 		printValues(values)
 	}
 
@@ -153,6 +165,6 @@ func (c *ConfigCompiler) ValidateConfig(opts ValidateConfigOpts) error {
 		}
 	}
 
-	fmt.Printf("\nConfig file at %s is valid.\n", opts.ConfigPath)
+	fmt.Printf("Config file at %s is valid.\n", opts.ConfigPath)
 	return nil
 }
